@@ -1,0 +1,190 @@
+name: Docker Build
+
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
+
+# reusable workflow
+on:
+  workflow_call:
+    inputs:
+      platform:
+        description: "Name of specific platform that have to build."
+        required: true
+        type: string
+      stage:
+        description: "Name of specific stage that have to build."
+        required: true
+        type: string
+      ghr-free-disk:
+        description: "Clear up runners disk space (default off)."
+        default: false
+        required: false
+        type: boolean
+
+env:
+  # Use docker.io for Docker Hub if empty
+  REGISTRY: ghcr.io
+  # github.repository as <account>/<repo>
+  IMAGE_NAME: ${{ github.repository }}
+  # documentation URL into repository
+  REPO_README: ${{ github.server_url }}/${{ github.repository }}/blob/main/README.rst
+
+run-name: Build (${{ inputs.stage }}@${{ inputs.platform }})
+
+jobs:
+  build:
+    name: Build (${{ inputs.stage }}@${{ inputs.platform }})
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 1440
+
+    steps:
+      - name: Prepare GitHub runner environment
+        run: |
+          platform=${{ inputs.platform }}
+          echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
+          echo "PLATFORM=${{ inputs.platform }}" >> $GITHUB_ENV
+          echo "CACHE=buildcache-${platform//\//-}" >> $GITHUB_ENV
+          echo "STAGE=${{ inputs.stage }}" >> $GITHUB_ENV
+          echo "IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" >> $GITHUB_ENV
+
+      # Free Disk Space on Ubuntu runners, clear up to 35 GB disk space
+      # https://github.com/jlumbroso/free-disk-space
+      - name: Free disk space
+        if: ${{ inputs.ghr-free-disk }}
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          # Tool cache: Saved 8.3GiB
+          tool-cache: true
+          # Android library: Saved 7.5GiB
+          android: true
+          # .NET runtime: Saved 1.6GiB
+          dotnet: true
+          # Haskell runtime: Saved 5.4GiB
+          haskell: true
+          # Large misc. packages: Saved 4.8GiB
+          large-packages: true
+          # Docker images: Saved 3.2GiB
+          docker-images: true
+          # Swap storage: Saved 4.0GiB
+          swap-storage: true
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get Recent Commit Authors
+        id: recent-commits-authors
+        run: |
+          jsonlist=$(git log --format="%an <%ae>" | \
+                     sort -u | tr '\n' '\000' | \
+                     jq -R -s -c 'split("\u0000")')
+          echo "jsonlist=$jsonlist" >> $GITHUB_OUTPUT
+
+      # Install QEMU static binaries for multi-arch image build
+      # https://github.com/docker/setup-qemu-action
+      # https://docs.docker.com/build/ci/github-actions/multi-platform
+      - name: Set up QEMU
+        id: setup-qemu
+        uses: docker/setup-qemu-action@v3
+        with:
+          # Set Qemu version and also avoid limit error, see:
+          # https://github.com/docker/setup-qemu-action/issues/163
+          image: tonistiigi/binfmt:qemu-v8.1.5
+
+      # Set up BuildKit Docker container builder to be able to build
+      # multi-platform images and export cache
+      # https://github.com/docker/setup-buildx-action
+      - name: Set up Docker Buildx
+        id: setup-docker
+        uses: docker/setup-buildx-action@v3
+
+      # Login against a Docker registry except on PR
+      # https://github.com/docker/login-action
+      - name: Login to registry ${{ env.REGISTRY }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Extract metadata (tags, labels) for Docker
+      # https://github.com/docker/metadata-action
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          labels: |
+            org.opencontainers.image.vendor=TiaC Systems Network
+            org.opencontainers.image.authors=${{ steps.recent-commits-authors.outputs.jsonlist }}
+            org.opencontainers.image.documentation=${{ env.REPO_README }}
+
+      # Build Docker image with Buildx
+      # https://github.com/docker/build-push-action
+      # https://docs.docker.com/build/ci/github-actions/cache
+      - name: Build Docker image for ${{ env.STAGE }}@${{ env.PLATFORM }}
+        if: env.STAGE != 'push'
+        id: build-stage
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ env.PLATFORM }}
+          target: ${{ env.STAGE }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=false
+          cache-from: type=registry,ref=${{ env.IMAGE }}:${{ env.CACHE }}
+          cache-to: type=registry,ref=${{ env.IMAGE }}:${{ env.CACHE }},mode=max
+
+      # Build and push final Docker image with Buildx
+      # https://github.com/docker/build-push-action
+      # https://docs.docker.com/build/ci/github-actions/cache
+      - name: Build and push final Docker image for ${{ env.PLATFORM }}
+        if: env.STAGE == 'push'
+        id: build-and-push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          provenance: mode=max
+          platforms: ${{ env.PLATFORM }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=registry,ref=${{ env.IMAGE }}:${{ env.CACHE }}
+          cache-to: type=registry,ref=${{ env.IMAGE }}:${{ env.CACHE }},mode=max
+
+      - name: Export digest
+        if: env.STAGE == 'push'
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build-and-push.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        if: env.STAGE == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  retry-on-failure:
+    name: Retry on Failure
+
+    # only execute the step on failed workflows
+    # do not trigger more than 3 times
+    if: failure() && fromJSON(github.run_attempt) < 3
+
+    # run these step last
+    needs:
+      - build
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rerun ${{ github.run_attempt }} failed jobs in the current workflow
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run retry-workflow.yml --field runid=${{ github.run_id }}

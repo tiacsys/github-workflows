@@ -1,0 +1,53 @@
+name: Docker Retention
+
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
+
+# reusable workflow
+on:
+  workflow_call:
+    inputs:
+      older-than:
+        description: >
+          Only include packages for processing that are older than this
+          value. Use the following format samples: 50 seconds, 15 days,
+          6 months, 2 years
+        required: true
+        type: string
+      exclude-tags:
+        description: >
+          Comma-separated list of tags strictly to be preserved/excluded
+          from deletion. A regular expression selector will be used, the
+          `use-regex` option is set to true!
+        required: true
+        type: string
+
+env:
+  # Use docker.io for Docker Hub if empty
+  REGISTRY: ghcr.io
+
+jobs:
+  clean:
+    name: Clean (${{ github.repository }})
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      # Delete all untagged Docker images older than given time.
+      # https://github.com/dataaxiom/ghcr-cleanup-action
+      - name: Delete untagged Docker images on registry ${{ env.REGISTRY }}
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          older-than: ${{ inputs.older-than }}
+          exclude-tags: ${{ inputs.exclude-tags }}
+          use-regex: true
+          delete-untagged: true
+          delete-partial-images: true
+          packages: ${{ github.event.repository.name }}
+          owner: ${{ github.repository_owner }}
+          token: ${{ secrets.GITHUB_TOKEN }}

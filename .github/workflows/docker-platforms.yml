@@ -1,0 +1,50 @@
+name: Docker Platforms
+
+# reusable workflow
+on:
+  workflow_call:
+    inputs:
+      platforms-json:
+        description: "JSON file with matrix include list of all platfroms."
+        required: true
+        type: string
+      stage:
+        description: "Name of specific stage that have to build."
+        required: true
+        type: string
+      ghr-free-disk:
+        description: "Clear up runners disk space (default off)."
+        default: false
+        required: false
+        type: boolean
+
+run-name: Platforms (${{ inputs.stage }})
+
+jobs:
+  platforms:
+    name: Platforms (${{ inputs.stage }})
+
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-platform-matrix.outputs.matrix }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set platform matrix data
+        id: set-platform-matrix
+        run: echo "matrix=$(jq -c . < ${{ inputs.platforms-json }})" >> $GITHUB_OUTPUT
+
+  platform:
+    name: Platform
+    needs:
+      - platforms
+
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.platforms.outputs.matrix) }}
+    uses: tiacsys/github-workflows/.github/workflows/docker-build.yml@main
+    with:
+      ghr-free-disk: ${{ inputs.ghr-free-disk }}
+      platform: ${{ matrix.platform }}
+      stage: ${{ inputs.stage }}

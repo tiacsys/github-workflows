@@ -1,0 +1,43 @@
+name: Docker Mr. Proper
+
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
+
+# reusable workflow
+on:
+  workflow_call:
+    inputs:
+      delete-tags:
+        description: >
+          Comma-separated list of tags to delete (supports wildcard syntax).
+          Regular expression is not supported, the `use-regex` option is set
+          to false!
+        required: true
+        type: string
+
+env:
+  # Use docker.io for Docker Hub if empty
+  REGISTRY: ghcr.io
+
+jobs:
+  clean:
+    name: Clean (${{ github.repository }})
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      # Delete all tagged Docker images.
+      # https://github.com/dataaxiom/ghcr-cleanup-action
+      - name: Delete tagged Docker images on registry ${{ env.REGISTRY }}
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          delete-tags: ${{ inputs.delete-tags }}
+          use-regex: false
+          packages: ${{ github.event.repository.name }}
+          owner: ${{ github.repository_owner }}
+          token: ${{ secrets.GITHUB_TOKEN }}

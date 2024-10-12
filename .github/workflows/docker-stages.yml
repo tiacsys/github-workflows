@@ -1,0 +1,61 @@
+name: Docker Stages
+
+# reusable workflow
+on:
+  workflow_call:
+    inputs:
+      platforms-json:
+        description: "JSON file with matrix include list of all platfroms."
+        required: true
+        type: string
+      stages-json:
+        description: "JSON file with matrix include list of all stages."
+        required: true
+        type: string
+      ghr-free-disk:
+        description: "Clear up runners disk space (default off)."
+        default: false
+        required: false
+        type: boolean
+
+run-name: Stages
+
+jobs:
+  stages:
+    name: Stages
+
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-stage-matrix.outputs.matrix }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set stage matrix data
+        id: set-stage-matrix
+        run: echo "matrix=$(jq -c . < ${{ inputs.stages-json }})" >> $GITHUB_OUTPUT
+
+  stage:
+    name: Stage
+    needs:
+      - stages
+
+    strategy:
+      # guarantee jobs are executed in given order
+      max-parallel: 1
+      fail-fast: true
+      matrix: ${{ fromJson(needs.stages.outputs.matrix) }}
+    uses: tiacsys/github-workflows/.github/workflows/docker-platforms.yml@main
+    with:
+      ghr-free-disk: ${{ matrix.ghr-free-disk || false }}
+      platforms-json: ${{ inputs.platforms-json }}
+      stage: ${{ matrix.stage }}
+
+  publish:
+    name: Publish
+    needs:
+      - stage
+
+    uses: tiacsys/github-workflows/.github/workflows/docker-publish.yml@main
+    with:
+      ghr-free-disk: ${{ inputs.ghr-free-disk || false }}

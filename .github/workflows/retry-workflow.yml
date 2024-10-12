@@ -1,0 +1,30 @@
+name: Retry Workflow
+
+# Retry Failed GitHub Actions
+#
+# https://medium.com/@aarne.laur/retry-failed-github-actions-8661e7601c66
+# https://stackoverflow.com/a/78314483
+
+# reusable workflow
+on:
+  workflow_call:
+    inputs:
+      runid:
+        required: true
+        type: string
+
+run-name: Retry (${{ inputs.runid }})
+
+jobs:
+  rerun:
+    name: Rerun (${{ inputs.runid }})
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rerun ${{ inputs.runid }}
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run watch ${{ inputs.runid }} > /dev/null 2>&1
+          gh run rerun ${{ inputs.runid }} --failed
