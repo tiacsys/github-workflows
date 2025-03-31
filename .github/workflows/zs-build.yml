@@ -1,0 +1,186 @@
+# Copyright (c) 2025 TiaC Systems
+# SPDX-License-Identifier: Apache-2.0
+
+name: Zephyr School Build
+
+# https://docs.github.com/en/actions/sharing-automations/reusing-workflows
+on:
+  workflow_call:
+    secrets:
+      ssh_private_key:
+        description: |
+          Documentation content and examples may be hidden by private
+          repositories on GitHub. Even such repositories will be fetch
+          by "west update" with native Git calls over SSH. Thus the
+          runner SSH client have to setup with a proper private key to
+          grant access to such kind of GitHub repositories. The given
+          private key have to provide by the secreets in your specific
+          repository or organization.
+        required: true
+
+    inputs:
+      ws-path:
+        description: |
+          Documentation workspace path, should contain the "doc-path".
+        required: true
+        type: string
+
+      doc-path:
+        description: |
+          Documentation content path, should contain the west.yml file if
+          "manifest-dir-name" and/or "manifest-file-name" is not
+          specified, cannot contain multiple directories.
+        required: true
+        type: string
+
+      doc-sources:
+        description: |
+          Documentation source path in "doc-path", should contain the
+          CMakeLists.txt file.
+        required: true
+        type: string
+
+      doc-targets:
+        description: |
+          List of documentation build targets, colon separated.
+        default: all
+        required: false
+        type: string
+
+      manifest-dir-name:
+        description: |
+          Name of the west workspace manifest dir name in "doc-path".
+        default: .
+        required: false
+        type: string
+
+      manifest-file-name:
+        description: |
+          Name of the west workspace manifest file name in "doc-path".
+        default: west.yml
+        required: false
+        type: string
+
+      sdk-base:
+        description: |
+          Base URL of the Zephyr SDK for download.
+        default: https://github.com/zephyrproject-rtos/sdk-ng/releases/download
+        required: false
+        type: string
+
+      sdk-version:
+        description: |
+          Zephyr SDK version to use or "auto" to detect automatically.
+        default: auto
+        required: false
+        type: string
+
+      toolchains:
+        description: |
+          List of toolchains to install, colon separated.
+        default: x86_64-zephyr-elf:arm-zephyr-eabi
+        required: false
+        type: string
+
+      test-cmd:
+        description: |
+          Command that have to execute inside "ws-path" for testing, either the
+          workspace setup or Zephyr SDK installation or the documentation itself.
+        default: ''
+        required: false
+        type: string
+
+      sphinx-revealjs-base:
+        description: |
+          Base URL of the Sphinx extension for Reveal.js.
+        default: https://github.com/tiacsys/sphinx-revealjs.git
+        required: false
+        type: string
+
+      sphinx-revealjs-branch:
+        description: |
+          Branch in "sphinx-revealjs-base" that have to use.
+        default: toctree-3.1.4
+        required: false
+        type: string
+
+# Cancel already running workflows regardless of their references.
+# This prevents GitHub workflows from running in parallel (avoiding
+# invalidation of build caches).
+concurrency:
+  # group: ${{ github.workflow }}-${{ github.repository_id }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.repository_id }}
+  cancel-in-progress: true
+
+jobs:
+  zs-build:
+    name: Build and upload documentation to artifacts
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Setup SSH
+        uses: tiacsys/ssh-setup@v1
+        with:
+          host: github.com
+          private-key: ${{ secrets.ssh_private_key }}
+
+      - name: Checkout the code
+        uses: actions/checkout@v4
+        with:
+          path: ${{ inputs.ws-path }}/${{ inputs.doc-path }}/${{ inputs.manifest-dir-name }}
+
+      - name: Setup Zephyr workspace from local manifest
+        uses: tiacsys/zephyr-setup@v1
+        with:
+          app-path: ${{ inputs.doc-path }}
+          base-path: ${{ inputs.ws-path }}
+          manifest-file-name: ${{ inputs.manifest-dir-name }}/${{ inputs.manifest-file-name }}
+          sdk-base: ${{ inputs.sdk-base }}
+          sdk-version: ${{ inputs.sdk-version }}
+          toolchains: ${{ inputs.toolchains }}
+
+      - name: Install additional dependencies
+        working-directory: ${{ inputs.ws-path }}
+        run: |
+          pip3 install --upgrade --requirement zephyr/doc/requirements.txt
+          pip3 install --upgrade --requirement zephyr-school/doctools/doc/requirements.txt
+
+      - name: Install sphinx-revealjs
+        working-directory: ${{ inputs.ws-path }}
+        run: |
+          mkdir extra && cd extra
+          git clone -b ${{ inputs.sphinx-revealjs-branch }} ${{ inputs.sphinx-revealjs-base }}
+          cd sphinx-revealjs
+          ./tools/fetch_revealjs.py
+          pip3 install --editable .
+
+      - name: Test command execution
+        working-directory: ${{ inputs.ws-path }}
+        run: |
+          west zephyr-export
+          ${{ inputs.test-cmd }}
+        if: ${{ inputs.test-cmd != '' }}  # only if command was given
+
+      - name: Build the documentation
+        working-directory: ${{ inputs.ws-path }}
+        run: |
+          . zephyr/zephyr-env.sh
+          cmake -S ${{ inputs.doc-path }}/${{ inputs.doc-sources }} -B build/doc
+
+          IFS=":"
+          MAKE_TARGETS="${{ inputs.doc-targets }}"
+          for make_target in ${MAKE_TARGETS}; do
+            cmake --build build/doc --target "${make_target}"
+          done
+
+      - name: Compress documentation
+        working-directory: ${{ inputs.ws-path }}/build/doc
+        run: |
+          tar --use-compress-program="xz -T0" -cf html-output.tar.xz \
+              --exclude html/*/_sources html
+
+      - name: Upload HTML documentation
+        uses: actions/upload-artifact@v4
+        with:
+          name: html-output
+          path: ${{ inputs.ws-path }}/build/doc/html-output.tar.xz
