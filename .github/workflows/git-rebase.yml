@@ -7,7 +7,7 @@ name: Git Rebase
 # and static execution matrix, read from a YAML notated file given by
 # the required input parameter 'matrix' with following expected content:
 #
-# to:      list of destination organisations, either as public git+https or
+# on:      list of destination organisations, either as public git+https or
 #          protected (private) git+ssh base URI; multiple entries allowed
 #
 # repo:    list of multiple repository that have to exist on both, source
@@ -24,13 +24,13 @@ on:
         required: true
         type: string
 
-      to-repo-prefix:
+      on-repo-prefix:
         description: "Prefix to all destination repository names."
         required: false
         default: ""
         type: string
 
-      to-repo-suffix:
+      on-repo-suffix:
         description: "Suffix to all destination repository names."
         required: false
         default: ""
@@ -102,7 +102,7 @@ jobs:
       - name: Rebase Custodians Git Refspecs
         uses: tiacsys/git-rebase@v1
         with:
-          repo: "${{ matrix.to }}/${{ inputs.to-repo-prefix }}${{ matrix.repo }}${{ inputs.to-repo-suffix }}.git"
+          repo: "${{ matrix.on }}/${{ inputs.on-repo-prefix }}${{ matrix.repo }}${{ inputs.on-repo-suffix }}.git"
           source_branch: "${{ inputs.refspec-prefix }}/${{ matrix.refspec }}"
           destination_branch: "${{ matrix.refspec }}"
           ssh_private_key: "${{ secrets[env.SECRET_STRING] }}"
