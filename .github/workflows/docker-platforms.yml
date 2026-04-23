@@ -30,7 +30,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Set platform matrix data
         id: set-platform-matrix
         run: echo "matrix=$(jq -c . < ${{ inputs.platforms-json }})" >> $GITHUB_OUTPUT

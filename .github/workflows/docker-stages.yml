@@ -38,7 +38,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Set stage matrix data
         id: set-stage-matrix
         run: echo "matrix=$(jq -c . < ${{ inputs.stages-json }})" >> $GITHUB_OUTPUT
