@@ -1,0 +1,118 @@
+# Copyright (c) 2025-2026 TiaC Systems
+# SPDX-License-Identifier: MIT
+
+name: Git Sync
+
+# Reusing the special GitHub action 'git-sync' inside of a pre-defined
+# and static execution matrix, read from a YAML notated file given by
+# the required input parameter 'matrix' with following expected content:
+#
+# to:      list of destination organisations, either as public git+https or
+#          protected (private) git+ssh base URI; multiple entries allowed
+#
+# from:    list of only one single source organisation from where to sync
+#
+# repo:    list of multiple repository that have to exist on both, source
+#          and destination organisations
+#
+# refspec: list of multiple Git refspecs that have to sync on all Git repos
+
+# https://docs.github.com/en/actions/sharing-automations/reusing-workflows
+on:
+  workflow_call:
+    inputs:
+      matrix:
+        description: "YAML file with matrix axises."
+        required: true
+        type: string
+
+      from-repo-prefix:
+        description: "Prefix to all source repository names."
+        required: false
+        default: ""
+        type: string
+
+      from-repo-suffix:
+        description: "Suffix to all source repository names."
+        required: false
+        default: ""
+        type: string
+
+      to-repo-prefix:
+        description: "Prefix to all destination repository names."
+        required: false
+        default: ""
+        type: string
+
+      to-repo-suffix:
+        description: "Suffix to all destination repository names."
+        required: false
+        default: ""
+        type: string
+
+      secret-prefix:
+        description: "Construct the secret variable name with that prefix."
+        required: false
+        default: ""
+        type: string
+
+      secret-suffix:
+        description: "Construct the secret variable name with that suffix."
+        required: false
+        default: ""
+        type: string
+
+run-name: Git Sync
+        
+# Cancel already running workflows regardless of their references.
+# This prevents GitHub workflows from running in parallel (avoiding
+# invalidation of build caches).
+concurrency:
+  # group: ${{ github.workflow }}-${{ github.repository_id }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.repository_id }}
+  cancel-in-progress: true
+
+jobs:
+  setup:
+    name: Setup
+    runs-on: ubuntu-latest
+
+    outputs:
+      matrix: ${{ steps.set-git-sync-matrix.outputs.matrix }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Load matrix data
+        id: set-git-sync-matrix
+        run: |
+          echo "matrix=$(yq -o json '. ' ${{ inputs.matrix }} | jq -c .)" >> $GITHUB_OUTPUT
+
+  execute:
+    name: Execute
+    runs-on: ubuntu-latest
+
+    needs:
+      - setup
+
+    strategy:
+      fail-fast: true
+      matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
+
+    steps:
+      - name: Generate Secret String
+        run: |
+          varname_prefix="${{ inputs.secret-prefix }}"
+          varname_unique="$(echo '${{ matrix.repo }}' | tr '[:punct:]' '_' | tr '[:lower:]' '[:upper:]')"
+          varname_suffix="${{ inputs.secret-suffix }}"
+          varname="${varname_prefix}${varname_unique}${varname_suffix}"
+          echo "SECRET_STRING=${varname}" >> $GITHUB_ENV
+
+      - name: Sync Git Refspecs
+        uses: tiacsys/git-sync@v3
+        with:
+          source_repo: "${{ matrix.from }}/${{ inputs.from-repo-prefix }}${{ matrix.repo }}${{ inputs.from-repo-suffix }}.git"
+          source_branch: "${{ matrix.refspec }}"
+          destination_repo: "${{ matrix.to }}/${{ inputs.to-repo-prefix }}${{ matrix.repo }}${{ inputs.to-repo-suffix }}.git"
+          destination_branch: "${{ matrix.refspec }}"
+          ssh_private_key: "${{ secrets[env.SECRET_STRING] }}"
