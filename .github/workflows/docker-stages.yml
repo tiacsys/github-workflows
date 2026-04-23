@@ -53,7 +53,7 @@ jobs:
       max-parallel: 1
       fail-fast: true
       matrix: ${{ fromJson(needs.stages.outputs.matrix) }}
-    uses: tiacsys/github-workflows/.github/workflows/docker-platforms.yml@v1
+    uses: tiacsys/github-workflows/.github/workflows/docker-platforms.yml@v2
     with:
       ghr-free-disk: ${{ matrix.ghr-free-disk || false }}
       platforms-json: ${{ inputs.platforms-json }}
@@ -64,6 +64,6 @@ jobs:
     needs:
       - stage
 
-    uses: tiacsys/github-workflows/.github/workflows/docker-publish.yml@v1
+    uses: tiacsys/github-workflows/.github/workflows/docker-publish.yml@v2
     with:
       ghr-free-disk: ${{ inputs.ghr-free-disk || false }}

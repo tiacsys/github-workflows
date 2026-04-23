@@ -43,7 +43,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.platforms.outputs.matrix) }}
-    uses: tiacsys/github-workflows/.github/workflows/docker-build.yml@v1
+    uses: tiacsys/github-workflows/.github/workflows/docker-build.yml@v2
     with:
       ghr-free-disk: ${{ inputs.ghr-free-disk }}
       platform: ${{ matrix.platform }}
