@@ -64,14 +64,6 @@ on:
 
 run-name: Git Sync
         
-# Cancel already running workflows regardless of their references.
-# This prevents GitHub workflows from running in parallel (avoiding
-# invalidation of build caches).
-concurrency:
-  # group: ${{ github.workflow }}-${{ github.repository_id }}-${{ github.ref }}
-  group: ${{ github.workflow }}-${{ github.repository_id }}
-  cancel-in-progress: true
-
 jobs:
   setup:
     name: Setup
